@@ -34,7 +34,7 @@ html, body, [data-testid="stAppViewContainer"] { background-color: #07070f; colo
 .cover-module { font-size:14px; color:rgba(255,255,255,0.38); margin-bottom:30px; }
 .cover-badge { display:inline-block; background:rgba(0,212,255,0.1); border:1px solid rgba(0,212,255,0.35); border-radius:50px; padding:6px 20px; font-size:12px; font-weight:700; color:#00d4ff; letter-spacing:2px; text-transform:uppercase; margin-bottom:22px; }
 .cover h1 { font-size:clamp(34px,5vw,68px); font-weight:900; line-height:1.05; margin:0 0 22px; background:linear-gradient(135deg,#ffffff 0%,#00d4ff 50%,#7c3aed 100%); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }
-.cover-sub { font-size:19px; color:rgba(255,255,255,0.62); max-width:660px; margin:0 auto 36px; line-height:1.55; }
+.cover-sub { font-size:19px; color:rgba(255,255,255,0.62); max-width:660px; margin:0 auto 36px; line-height:1.55; text-align:center; }
 .cover-authors { display:flex; justify-content:center; gap:36px; flex-wrap:wrap; border-top:1px solid rgba(255,255,255,0.08); padding-top:28px; margin-top:8px; }
 .cover-author-name { font-size:16px; font-weight:700; color:#fff; }
 .cover-author-id { font-size:12px; color:rgba(255,255,255,0.42); margin-top:2px; }
@@ -205,8 +205,8 @@ def fig_convergence():
     fig.add_hline(y=bs_ref, line=dict(color=GREEN, dash="dash", width=1.5),
                   annotation_text=f"BS European ${bs_ref:.3f}",
                   annotation_font_color=GREEN)
-    fig.update_layout(**chart_layout("Binomial Price Convergence (S0=100, K=100, σ=20%, T=1y)"),
-                      xaxis_title="Steps N", yaxis_title="Put Price ($)")
+    fig.update_layout(**chart_layout("Binomial Price Convergence (S0=100, K=100, σ=20%, T=1y)"))
+    fig.update_layout(xaxis_title="Steps N", yaxis_title="Put Price ($)")
     return fig, bs_ref
 
 
@@ -273,8 +273,8 @@ def fig_mc_paths():
                   annotation_text="Strike K=$135", annotation_font_color="#ff4757")
     fig.add_hline(y=201.80, line=dict(color=GOLD, dash="dash", width=1.2),
                   annotation_text="S0=$201.80", annotation_font_color=GOLD)
-    fig.update_layout(**chart_layout("GBM Simulation — SPCX (1,000 paths, σ=107%)"),
-                      xaxis_title="Time (years)", yaxis_title="Price ($)")
+    fig.update_layout(**chart_layout("GBM Simulation — SPCX (1,000 paths, σ=107%)"))
+    fig.update_layout(xaxis_title="Time (years)", yaxis_title="Price ($)")
     return fig, S
 
 
@@ -290,8 +290,8 @@ def fig_dist(S):
                                marker_color="rgba(255,71,87,0.7)"))
     fig.add_vline(x=135, line=dict(color="#ff4757", dash="dot", width=2),
                   annotation_text="K=$135", annotation_font_color="#ff4757")
-    fig.update_layout(**chart_layout("Terminal Price Distribution", h=300),
-                      xaxis_title="Final Price ($)", yaxis_title="Number of Paths",
+    fig.update_layout(**chart_layout("Terminal Price Distribution", h=300))
+    fig.update_layout(xaxis_title="Final Price ($)", yaxis_title="Number of Paths",
                       barmode="overlay",
                       legend=dict(orientation="h", y=1.1, x=0))
     return fig
@@ -307,9 +307,8 @@ def fig_decomp(am, eu, prem):
         textposition="outside", textfont=dict(size=14, color="white"),
         width=0.45,
     ))
-    fig.update_layout(**chart_layout("Price Decomposition — SPCX", h=320),
-                      yaxis_title="Price ($)",
-                      xaxis=dict(gridcolor="rgba(0,0,0,0)"))
+    fig.update_layout(**chart_layout("Price Decomposition — SPCX", h=320))
+    fig.update_layout(yaxis_title="Price ($)", xaxis=dict(gridcolor="rgba(0,0,0,0)"))
     return fig
 
 
