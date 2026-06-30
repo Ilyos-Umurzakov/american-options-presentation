@@ -34,7 +34,7 @@ html, body, [data-testid="stAppViewContainer"] { background-color: #07070f; colo
 .cover-module { font-size:14px; color:rgba(255,255,255,0.38); margin-bottom:30px; }
 .cover-badge { display:inline-block; background:rgba(0,212,255,0.1); border:1px solid rgba(0,212,255,0.35); border-radius:50px; padding:6px 20px; font-size:12px; font-weight:700; color:#00d4ff; letter-spacing:2px; text-transform:uppercase; margin-bottom:22px; }
 .cover h1 { font-size:clamp(34px,5vw,68px); font-weight:900; line-height:1.05; margin:0 0 22px; background:linear-gradient(135deg,#ffffff 0%,#00d4ff 50%,#7c3aed 100%); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }
-.cover-sub { font-size:19px; color:rgba(255,255,255,0.62); max-width:660px; margin:0 auto 36px; line-height:1.55; text-align:center; }
+.cover-sub { font-size:19px; color:rgba(255,255,255,0.62); max-width:660px; margin:0 auto 36px; line-height:1.55; text-align:center !important; }
 .cover-authors { display:flex; justify-content:center; gap:36px; flex-wrap:wrap; border-top:1px solid rgba(255,255,255,0.08); padding-top:28px; margin-top:8px; }
 .cover-author-name { font-size:16px; font-weight:700; color:#fff; }
 .cover-author-id { font-size:12px; color:rgba(255,255,255,0.42); margin-top:2px; }
@@ -341,7 +341,7 @@ st.markdown(f"""
   <div class="cover-module">Computer Based Investment Analysis &nbsp;|&nbsp; Summer Semester 2026 &nbsp;|&nbsp; Ferdinand Wöhrle &nbsp;·&nbsp; Dr. Lukas Müller</div>
   <div class="cover-badge">Research Presentation · 2026</div>
   <h1>Pricing of American Options</h1>
-  <p class="cover-sub">
+  <p class="cover-sub" style="text-align:center;">
     How do you price the right to act early? We implement two numerical methods —
     the Cox-Ross-Rubinstein Binomial Tree and Longstaff-Schwartz LSMC —
     and apply them to a real SpaceX (SPCX) put option.
