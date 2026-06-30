@@ -251,11 +251,10 @@ def fig_tree():
                 font=dict(color="white", size=11, family="Inter"),
             )
 
-    fig.update_layout(
-        **chart_layout("3-Step Binomial Tree (S0=100, K=100)  ·  red = early exercise", h=320),
-        xaxis=dict(showgrid=False, zeroline=False, showticklabels=False, range=[-0.9, 6.5]),
-        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-    )
+    layout = chart_layout("3-Step Binomial Tree (S0=100, K=100)  ·  red = early exercise", h=320)
+    layout["xaxis"] = dict(showgrid=False, zeroline=False, showticklabels=False, range=[-0.9, 6.5])
+    layout["yaxis"] = dict(showgrid=False, zeroline=False, showticklabels=False)
+    fig.update_layout(**layout)
     return fig
 
 
@@ -340,7 +339,7 @@ st.markdown(f"""
 <div class="cover">
   {logo_html}
   <div class="cover-university">Frankfurt University of Applied Sciences &nbsp;·&nbsp; Faculty 3 – Business and Law</div>
-  <div class="cover-module">Computer Based Investment Analysis &nbsp;|&nbsp; Summer Semester 2026 &nbsp;|&nbsp; Prof. Wöhrle &nbsp;·&nbsp; Prof. Müller</div>
+  <div class="cover-module">Computer Based Investment Analysis &nbsp;|&nbsp; Summer Semester 2026 &nbsp;|&nbsp; Ferdinand Wöhrle &nbsp;·&nbsp; Dr. Lukas Müller</div>
   <div class="cover-badge">Research Presentation · 2026</div>
   <h1>Pricing of American Options</h1>
   <p class="cover-sub">
@@ -366,8 +365,8 @@ st.markdown(f"""
     </div>
     <div style="border-left:1px solid rgba(255,255,255,0.12);"></div>
     <div style="text-align:center;">
-      <div class="cover-prof">Supervisors: Prof. Wöhrle &nbsp;·&nbsp; Prof. Müller</div>
-      <div class="cover-prof">Submitted: July 2026 · Frankfurt am Main</div>
+      <div class="cover-prof">Lecturers: Ferdinand Wöhrle &nbsp;·&nbsp; Dr. Lukas Müller</div>
+      <div class="cover-prof">Submitted: 1 July 2026 · Frankfurt am Main</div>
     </div>
   </div>
 </div>
@@ -637,6 +636,6 @@ st.markdown("""
 <hr class="divider">
 <div style="text-align:center;padding:24px 0;color:rgba(255,255,255,0.28);font-size:12px;">
   Frankfurt University of Applied Sciences &nbsp;·&nbsp; Computer Based Investment Analysis &nbsp;·&nbsp; July 2026<br>
-  Ilyos Umurzakov (1615067) &nbsp;&amp;&nbsp; Leon Ye (1616910) &nbsp;·&nbsp; Prof. Wöhrle &nbsp;·&nbsp; Prof. Müller
+  Ilyos Umurzakov (1615067) &nbsp;&amp;&nbsp; Leon Ye (1616910) &nbsp;·&nbsp; Ferdinand Wöhrle &nbsp;·&nbsp; Dr. Lukas Müller
 </div>
 """, unsafe_allow_html=True)
