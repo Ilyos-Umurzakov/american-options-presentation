@@ -91,7 +91,7 @@ def logo_b64():
 
 # ── pricing functions ────────────────────────────────────────────────────────
 @st.cache_data
-def binomial_price(S0, K, r, sigma, T, N=200, option="put"):
+def binomial_price(S0, K, r, sigma, T, N=200, option="put", american=True):
     dt = T / N
     u  = math.exp(sigma * math.sqrt(dt))
     d  = 1 / u
@@ -102,8 +102,11 @@ def binomial_price(S0, K, r, sigma, T, N=200, option="put"):
     for _ in range(N - 1, -1, -1):
         prices = prices[:-1] / d
         hold   = disc * (q * vals[1:] + (1 - q) * vals[:-1])
-        ex     = np.maximum(K - prices, 0) if option == "put" else np.maximum(prices - K, 0)
-        vals   = np.maximum(hold, ex)
+        if american:
+            ex   = np.maximum(K - prices, 0) if option == "put" else np.maximum(prices - K, 0)
+            vals = np.maximum(hold, ex)
+        else:
+            vals = hold
     return float(vals[0])
 
 
@@ -192,67 +195,97 @@ def chart_layout(title="", h=380):
 @st.cache_data
 def fig_convergence():
     steps  = [5, 10, 20, 50, 100, 200, 500, 1000]
-    prices = [binomial_price(100, 100, 0.05, 0.20, 1.0, N=n) for n in steps]
+    am_prices = [binomial_price(100, 100, 0.05, 0.20, 1.0, N=n) for n in steps]
+    eu_prices = [binomial_price(100, 100, 0.05, 0.20, 1.0, N=n, american=False) for n in steps]
     bs_ref = black_scholes_put(100, 100, 0.05, 0.20, 1.0)
     fig = go.Figure()
     fig.add_trace(go.Scatter(
-        x=steps, y=prices, mode="lines+markers",
+        x=steps, y=eu_prices, mode="lines+markers",
+        line=dict(color=PRP, width=2.5),
+        marker=dict(size=7, color=PRP),
+        name="European binomial",
+        hovertemplate="N=%{x}<br>European=$%{y:.4f}<extra></extra>",
+    ))
+    fig.add_trace(go.Scatter(
+        x=steps, y=am_prices, mode="lines+markers",
         line=dict(color=CYAN, width=2.5),
         marker=dict(size=7, color=CYAN),
-        name="Binomial price",
-        hovertemplate="N=%{x}<br>Price=$%{y:.4f}<extra></extra>",
+        name="American binomial",
+        hovertemplate="N=%{x}<br>American=$%{y:.4f}<extra></extra>",
     ))
     fig.add_hline(y=bs_ref, line=dict(color=GREEN, dash="dash", width=1.5),
-                  annotation_text=f"BS European ${bs_ref:.3f}",
+                  annotation_text=f"Black-Scholes European ${bs_ref:.3f}",
                   annotation_font_color=GREEN)
-    fig.update_layout(**chart_layout("Binomial Price Convergence (S0=100, K=100, σ=20%, T=1y)"))
-    fig.update_layout(xaxis_title="Steps N", yaxis_title="Put Price ($)")
+    fig.update_layout(**chart_layout("Binomial Convergence (S0=100, K=100, σ=20%, T=1y)"))
+    fig.update_layout(xaxis_title="Steps N", yaxis_title="Put Price ($)",
+                      legend=dict(orientation="h", y=1.12, x=0))
     return fig, bs_ref
 
 
 @st.cache_data
 def fig_tree():
-    N = 3; u = 1.2; d = 1 / 1.2; S0 = 100
-    nodes, edges = [], []
-    for t in range(N + 1):
-        for j in range(t + 1):
-            px = t * 2.0; py = (t - 2 * j) * 1.4
-            S  = S0 * (u ** (t - j)) * (d ** j)
-            pv = max(100 - S, 0)
-            early = (t > 0) and (pv > 0) and (t < N)
-            nodes.append(dict(px=px, py=py, S=S, pv=pv, early=early, t=t, j=j))
-            if t > 0:
-                for nj in [j, j - 1]:
-                    p = next((n for n in nodes if n["t"] == t - 1 and n["j"] == nj), None)
-                    if p:
-                        edges.append((p["px"], p["py"], px, py))
+    # Same parameters as the base case so the tree is internally consistent.
+    N = 3; S0 = 100; K = 100; r = 0.05; sigma = 0.20; T = 1.0
+    dt = T / N
+    u  = math.exp(sigma * math.sqrt(dt))   # ≈ 1.122 for σ=20%
+    d  = 1 / u                             # ≈ 0.891
+    q  = (math.exp(r * dt) - d) / (u - d)
+    disc = math.exp(-r * dt)
 
+    # Stock price at every node; j = number of down-moves.
+    S = {(t, j): S0 * (u ** (t - j)) * (d ** j)
+         for t in range(N + 1) for j in range(t + 1)}
+
+    # Backward induction: option value V and genuine early-exercise flag.
+    V, early = {}, {}
+    for t in range(N, -1, -1):
+        for j in range(t + 1):
+            intrinsic = max(K - S[(t, j)], 0)
+            if t == N:
+                V[(t, j)], early[(t, j)] = intrinsic, False
+            else:
+                hold = disc * (q * V[(t + 1, j)] + (1 - q) * V[(t + 1, j + 1)])
+                if intrinsic > hold and intrinsic > 0:
+                    V[(t, j)], early[(t, j)] = intrinsic, True
+                else:
+                    V[(t, j)], early[(t, j)] = hold, False
+
+    def pos(t, j):
+        return t * 2.0, (t - 2 * j) * 1.4
+
+    # Edges: node (t,j) connects back to (t-1,j) [up] and (t-1,j-1) [down].
     xl, yl = [], []
-    for e in edges:
-        xl += [e[0], e[2], None]; yl += [e[1], e[3], None]
+    for t in range(1, N + 1):
+        for j in range(t + 1):
+            x1, y1 = pos(t, j)
+            for nj in (j, j - 1):
+                if 0 <= nj <= t - 1:
+                    x0, y0 = pos(t - 1, nj)
+                    xl += [x0, x1, None]; yl += [y0, y1, None]
 
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=xl, y=yl, mode="lines",
                              line=dict(color="rgba(255,255,255,0.12)", width=1.5),
                              showlegend=False, hoverinfo="skip"))
 
-    for n in nodes:
-        fill = c_rgba("#ff4757", 0.25) if n["early"] else c_rgba("#7c3aed", 0.18)
-        border = "#ff4757" if n["early"] else "#00d4ff"
-        fig.add_shape(type="rect",
-                      x0=n["px"] - .62, y0=n["py"] - .52,
-                      x1=n["px"] + .62, y1=n["py"] + .52,
-                      fillcolor=fill,
-                      line=dict(color=border, width=1.5))
-        for i, line in enumerate(f"S={n['S']:.0f}\nP={n['pv']:.1f}".split("\n")):
-            fig.add_annotation(
-                x=n["px"], y=n["py"] + (0.14 if i == 0 else -0.14),
-                text=line, showarrow=False,
-                font=dict(color="white", size=11, family="Inter"),
-            )
+    for t in range(N + 1):
+        for j in range(t + 1):
+            px, py = pos(t, j)
+            is_early = early[(t, j)]
+            fill   = c_rgba("#ff4757", 0.25) if is_early else c_rgba("#7c3aed", 0.18)
+            border = "#ff4757" if is_early else "#00d4ff"
+            fig.add_shape(type="rect",
+                          x0=px - .62, y0=py - .52, x1=px + .62, y1=py + .52,
+                          fillcolor=fill, line=dict(color=border, width=1.5))
+            for i, line in enumerate([f"S={S[(t, j)]:.1f}", f"V={V[(t, j)]:.1f}"]):
+                fig.add_annotation(
+                    x=px, y=py + (0.14 if i == 0 else -0.14),
+                    text=line, showarrow=False,
+                    font=dict(color="white", size=11, family="Inter"),
+                )
 
-    layout = chart_layout("3-Step Binomial Tree (S0=100, K=100)  ·  red = early exercise", h=320)
-    layout["xaxis"] = dict(showgrid=False, zeroline=False, showticklabels=False, range=[-0.9, 6.5])
+    layout = chart_layout("3-Step Binomial Tree (S0=100, K=100, σ=20%)  ·  red = early exercise", h=320)
+    layout["xaxis"] = dict(showgrid=False, zeroline=False, showticklabels=False, range=[-0.9, 6.9])
     layout["yaxis"] = dict(showgrid=False, zeroline=False, showticklabels=False)
     fig.update_layout(**layout)
     return fig
@@ -309,6 +342,26 @@ def fig_decomp(am, eu, prem):
     ))
     fig.update_layout(**chart_layout("Price Decomposition — SPCX", h=320))
     fig.update_layout(yaxis_title="Price ($)", xaxis=dict(gridcolor="rgba(0,0,0,0)"))
+    return fig
+
+
+@st.cache_data
+def fig_payoff():
+    S = np.linspace(50, 150, 240)
+    K = 100.0; prem = 8.0
+    call = np.maximum(S - K, 0) - prem
+    put  = np.maximum(K - S, 0) - prem
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=S, y=call, mode="lines",
+                             line=dict(color=GREEN, width=3), name="Long Call P/L"))
+    fig.add_trace(go.Scatter(x=S, y=put, mode="lines",
+                             line=dict(color=CYAN, width=3), name="Long Put P/L"))
+    fig.add_hline(y=0, line=dict(color="rgba(255,255,255,0.28)", width=1))
+    fig.add_vline(x=K, line=dict(color=GOLD, dash="dot", width=1.5),
+                  annotation_text="Strike K=$100", annotation_font_color=GOLD)
+    fig.update_layout(**chart_layout("Option Payoff at Expiry  ·  Profit / Loss vs. Stock Price", h=340))
+    fig.update_layout(xaxis_title="Stock Price at Expiry ($)", yaxis_title="Profit / Loss ($)",
+                      legend=dict(orientation="h", y=1.12, x=0))
     return fig
 
 
@@ -372,15 +425,30 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 c1, c2, c3, c4 = st.columns(4)
-for col, (num, lbl) in zip([c1, c2, c3, c4], [
-    ("2", "Numerical Methods"),
-    (f"{sig_iv*100:.0f}%", "Implied Volatility"),
-    (f"${am_spx:.2f}", "American Put (CRR)"),
-    (f"${lsmc_v:.2f}", "LSMC Put Price"),
-]):
-    with col:
-        st.markdown(f'<div class="stat-card"><div class="stat-number">{num}</div>'
-                    f'<div class="stat-label">{lbl}</div></div>', unsafe_allow_html=True)
+ref1, ref2 = st.columns([3, 2])
+with ref1:
+    st.plotly_chart(fig_payoff(), use_container_width=True)
+with ref2:
+    st.markdown("""
+    <div class="card">
+      <div style="font-size:13px;font-weight:700;color:#00d4ff;letter-spacing:2px;text-transform:uppercase;margin-bottom:16px;">Quick Refresher</div>
+      <div class="step-row">
+        <div class="step-dot" style="background:rgba(0,255,136,0.14);color:#00ff88;">C</div>
+        <div><div class="step-title">Call = right to buy at K</div>
+             <div class="step-desc">Profits when the stock rises above the strike. Loss capped at the premium paid.</div></div>
+      </div>
+      <div class="step-row">
+        <div class="step-dot" style="background:rgba(0,212,255,0.14);color:#00d4ff;">P</div>
+        <div><div class="step-title">Put = right to sell at K</div>
+             <div class="step-desc">Profits when the stock falls below the strike. Loss capped at the premium paid.</div></div>
+      </div>
+      <div class="step-row">
+        <div class="step-dot" style="background:rgba(255,165,2,0.14);color:#ffa502;">⏱</div>
+        <div><div class="step-title">American vs. European = timing</div>
+             <div class="step-desc">The payoff shape above is identical for both. The only difference is <strong>when</strong> you may exercise — European only at expiry, American at any time. That extra freedom is exactly what we are pricing.</div></div>
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
 
 st.markdown("<hr class='divider'>", unsafe_allow_html=True)
 
@@ -485,9 +553,10 @@ st.markdown("""
 <div class="info-box">
   <div style="font-size:12px;color:#00d4ff;font-weight:700;letter-spacing:1px;text-transform:uppercase;margin-bottom:6px;">Key Insight</div>
   <div style="font-size:14px;color:rgba(255,255,255,0.72);line-height:1.6;">
-    As N increases the binomial price oscillates and converges to a value <strong>slightly above</strong>
-    the Black-Scholes European price — the early exercise premium.
-    Convergence is rapid; N=200 is already stable.
+    The <strong style="color:#a78bfa;">European binomial (purple)</strong> converges exactly onto the
+    <strong style="color:#00ff88;">Black-Scholes price (green)</strong> — this validates the tree.
+    The <strong style="color:#00d4ff;">American binomial (blue)</strong> settles slightly above:
+    that persistent gap is the <strong>early exercise premium</strong>. Convergence is rapid — N=200 is already stable.
   </div>
 </div>
 """, unsafe_allow_html=True)
