@@ -223,75 +223,6 @@ def fig_convergence():
 
 
 @st.cache_data
-def fig_tree():
-    # Same parameters as the base case so the tree is internally consistent.
-    N = 3; S0 = 100; K = 100; r = 0.05; sigma = 0.20; T = 1.0
-    dt = T / N
-    u  = math.exp(sigma * math.sqrt(dt))   # ≈ 1.122 for σ=20%
-    d  = 1 / u                             # ≈ 0.891
-    q  = (math.exp(r * dt) - d) / (u - d)
-    disc = math.exp(-r * dt)
-
-    # Stock price at every node; j = number of down-moves.
-    S = {(t, j): S0 * (u ** (t - j)) * (d ** j)
-         for t in range(N + 1) for j in range(t + 1)}
-
-    # Backward induction: option value V and genuine early-exercise flag.
-    V, early = {}, {}
-    for t in range(N, -1, -1):
-        for j in range(t + 1):
-            intrinsic = max(K - S[(t, j)], 0)
-            if t == N:
-                V[(t, j)], early[(t, j)] = intrinsic, False
-            else:
-                hold = disc * (q * V[(t + 1, j)] + (1 - q) * V[(t + 1, j + 1)])
-                if intrinsic > hold and intrinsic > 0:
-                    V[(t, j)], early[(t, j)] = intrinsic, True
-                else:
-                    V[(t, j)], early[(t, j)] = hold, False
-
-    def pos(t, j):
-        return t * 2.0, (t - 2 * j) * 1.4
-
-    # Edges: node (t,j) connects back to (t-1,j) [up] and (t-1,j-1) [down].
-    xl, yl = [], []
-    for t in range(1, N + 1):
-        for j in range(t + 1):
-            x1, y1 = pos(t, j)
-            for nj in (j, j - 1):
-                if 0 <= nj <= t - 1:
-                    x0, y0 = pos(t - 1, nj)
-                    xl += [x0, x1, None]; yl += [y0, y1, None]
-
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=xl, y=yl, mode="lines",
-                             line=dict(color="rgba(255,255,255,0.12)", width=1.5),
-                             showlegend=False, hoverinfo="skip"))
-
-    for t in range(N + 1):
-        for j in range(t + 1):
-            px, py = pos(t, j)
-            is_early = early[(t, j)]
-            fill   = c_rgba("#ff4757", 0.25) if is_early else c_rgba("#7c3aed", 0.18)
-            border = "#ff4757" if is_early else "#00d4ff"
-            fig.add_shape(type="rect",
-                          x0=px - .62, y0=py - .52, x1=px + .62, y1=py + .52,
-                          fillcolor=fill, line=dict(color=border, width=1.5))
-            for i, line in enumerate([f"S={S[(t, j)]:.1f}", f"V={V[(t, j)]:.1f}"]):
-                fig.add_annotation(
-                    x=px, y=py + (0.14 if i == 0 else -0.14),
-                    text=line, showarrow=False,
-                    font=dict(color="white", size=11, family="Inter"),
-                )
-
-    layout = chart_layout("3-Step Binomial Tree (S0=100, K=100, σ=20%)  ·  red = early exercise", h=320)
-    layout["xaxis"] = dict(showgrid=False, zeroline=False, showticklabels=False, range=[-0.9, 6.9])
-    layout["yaxis"] = dict(showgrid=False, zeroline=False, showticklabels=False)
-    fig.update_layout(**layout)
-    return fig
-
-
-@st.cache_data
 def fig_tree_live(S0, K, r, sigma, T, N, option="put"):
     """Interactive binomial tree built from user inputs. Returns (fig, V_root,
     V_root_european, n_early)."""
@@ -449,9 +380,6 @@ def fig_payoff():
 
 
 # ── pre-compute ───────────────────────────────────────────────────────────────
-am_base = binomial_price(100, 100, 0.05, 0.20, 1.0)
-eu_base = black_scholes_put(100, 100, 0.05, 0.20, 1.0)
-
 S0_spx = 201.80; K_spx = 135; r_spx = 0.037; T_spx = 93 / 365
 sig_iv  = implied_vol(S0_spx, K_spx, r_spx, T_spx, 11.30)
 am_spx  = binomial_price(S0_spx, K_spx, r_spx, sig_iv, T_spx)
@@ -594,9 +522,23 @@ st.markdown('<div class="section-tag">02 · Method One</div>', unsafe_allow_html
 st.markdown('<div class="section-title">Cox-Ross-Rubinstein Binomial Tree</div>', unsafe_allow_html=True)
 st.markdown('<div class="section-sub">Discretise time into N steps. Build a tree of possible prices. Roll backwards comparing hold vs. exercise at every node.</div>', unsafe_allow_html=True)
 
+# compact type-in inputs — drive the live tree below
+ci = st.columns([1.1, 1, 1, 1, 1, 1, 1])
+opt_type = ci[0].selectbox("Type", ["Put", "Call"], key="tree_opt")
+opt = opt_type.lower()
+S0_i  = ci[1].number_input("Spot  S₀", 1.0, 10000.0, 100.0, step=1.0, key="tree_S0")
+K_i   = ci[2].number_input("Strike  K", 1.0, 10000.0, 100.0, step=1.0, key="tree_K")
+sig_i = ci[3].number_input("σ  (%)", 1.0, 200.0, 20.0, step=1.0, key="tree_sig") / 100
+T_i   = ci[4].number_input("T  (yr)", 0.05, 10.0, 1.0, step=0.25, key="tree_T")
+r_i   = ci[5].number_input("r  (%)", 0.0, 25.0, 5.0, step=0.5, key="tree_r") / 100
+N_i   = ci[6].number_input("Steps  N", 2, 5, 3, step=1, key="tree_N")
+
+tree_fig, v_am, v_eu, n_early = fig_tree_live(S0_i, K_i, r_i, sig_i, T_i, int(N_i), option=opt)
+prem_t = max(v_am - v_eu, 0.0)
+
 bt1, bt2 = st.columns([3, 2])
 with bt1:
-    st.plotly_chart(fig_tree(), use_container_width=True)
+    st.plotly_chart(tree_fig, use_container_width=True)
 
 with bt2:
     st.markdown(f"""
@@ -620,15 +562,22 @@ with bt2:
     </div>
     <div style="margin-top:14px;" class="kpi-row">
       <div class="kpi-box">
-        <div class="kpi-num">${am_base:.3f}</div>
-        <div class="kpi-lbl">American put N=200</div>
+        <div class="kpi-num" style="color:#00ff88;">${v_am:.2f}</div>
+        <div class="kpi-lbl">American {opt_type} (this tree)</div>
       </div>
       <div class="kpi-box" style="background:rgba(124,58,237,0.09);border-color:rgba(124,58,237,0.22);">
-        <div class="kpi-num" style="color:#a78bfa;">${eu_base:.3f}</div>
-        <div class="kpi-lbl">European BS benchmark</div>
+        <div class="kpi-num" style="color:#a78bfa;">${v_eu:.2f}</div>
+        <div class="kpi-lbl">European {opt_type} (this tree)</div>
+      </div>
+      <div class="kpi-box" style="background:rgba(255,165,2,0.09);border-color:rgba(255,165,2,0.22);">
+        <div class="kpi-num" style="color:#ffa502;">${prem_t:.3f}</div>
+        <div class="kpi-lbl">Early-exercise premium</div>
       </div>
     </div>
     """, unsafe_allow_html=True)
+
+st.caption(f"Prices are exact for this {int(N_i)}-step tree — add steps for more precision. "
+           f"{'Red nodes show where early exercise is optimal.' if n_early else 'No node exercises early here, so American and European coincide.'}")
 
 conv_fig, _ = fig_convergence()
 st.plotly_chart(conv_fig, use_container_width=True)
@@ -643,42 +592,6 @@ st.markdown("""
   </div>
 </div>
 """, unsafe_allow_html=True)
-
-# ── Binomial Tree Pricer ─────────────────────────────────────────────────────
-st.markdown("<br>", unsafe_allow_html=True)
-st.markdown('<div class="section-title" style="font-size:30px;">Binomial Tree Pricer</div>', unsafe_allow_html=True)
-st.markdown('<div class="section-sub" style="margin-bottom:20px;">Type in your own option and watch the tree solve it — red nodes are where exercising early beats holding.</div>', unsafe_allow_html=True)
-
-pc1, pc2 = st.columns([1, 3.4])
-
-with pc1:
-    opt_type = st.radio("Type", ["Put", "Call"], horizontal=True, key="tree_opt")
-    opt = opt_type.lower()
-    S0_i  = st.number_input("Spot  S₀", 1.0, 10000.0, 100.0, step=1.0, key="tree_S0")
-    K_i   = st.number_input("Strike  K", 1.0, 10000.0, 100.0, step=1.0, key="tree_K")
-    sig_i = st.number_input("Volatility σ (%)", 1.0, 200.0, 20.0, step=1.0, key="tree_sig") / 100
-    T_i   = st.number_input("Maturity T (years)", 0.05, 10.0, 1.0, step=0.25, key="tree_T")
-    r_i   = st.number_input("Rate  r (%)", 0.0, 25.0, 5.0, step=0.5, key="tree_r") / 100
-    N_i   = st.number_input("Tree steps  N", 2, 5, 3, step=1, key="tree_N")
-
-tree_fig, v_am, v_eu, n_early = fig_tree_live(S0_i, K_i, r_i, sig_i, T_i, int(N_i), option=opt)
-prem_t = max(v_am - v_eu, 0.0)
-
-with pc2:
-    m1, m2, m3 = st.columns(3)
-    with m1:
-        st.markdown(f'<div class="stat-card"><div class="stat-number" style="color:{GREEN};">${v_am:.2f}</div>'
-                    f'<div class="stat-label">American {opt_type} (this tree)</div></div>', unsafe_allow_html=True)
-    with m2:
-        st.markdown(f'<div class="stat-card"><div class="stat-number" style="color:{CYAN};">${v_eu:.2f}</div>'
-                    f'<div class="stat-label">European {opt_type} (this tree)</div></div>', unsafe_allow_html=True)
-    with m3:
-        st.markdown(f'<div class="stat-card"><div class="stat-number" style="color:{GOLD};">${prem_t:.3f}</div>'
-                    f'<div class="stat-label">Early-exercise premium</div></div>', unsafe_allow_html=True)
-    st.plotly_chart(tree_fig, use_container_width=True)
-
-st.caption(f"Prices are exact for this {int(N_i)}-step tree; add steps for more precision. "
-           f"{'Some nodes exercise early (red).' if n_early else 'No node exercises early here — the American and European prices coincide.'}")
 
 st.markdown("<hr class='divider'>", unsafe_allow_html=True)
 
