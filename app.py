@@ -121,18 +121,6 @@ def black_scholes_put(S0, K, r, sigma, T):
 
 
 @st.cache_data
-def black_scholes(S0, K, r, sigma, T, option="put"):
-    from scipy.stats import norm
-    if T <= 0 or sigma <= 0:
-        return max(K - S0, 0) if option == "put" else max(S0 - K, 0)
-    d1 = (math.log(S0 / K) + (r + 0.5 * sigma**2) * T) / (sigma * math.sqrt(T))
-    d2 = d1 - sigma * math.sqrt(T)
-    if option == "put":
-        return K * math.exp(-r * T) * norm.cdf(-d2) - S0 * norm.cdf(-d1)
-    return S0 * norm.cdf(d1) - K * math.exp(-r * T) * norm.cdf(d2)
-
-
-@st.cache_data
 def lsmc_put(S0, K, r, sigma, T, M=20000, N=50, seed=42):
     rng = np.random.default_rng(seed)
     dt  = T / N
@@ -153,35 +141,6 @@ def lsmc_put(S0, K, r, sigma, T, M=20000, N=50, seed=42):
         coef, *_ = np.linalg.lstsq(A, Y, rcond=None)
         cont = A @ coef
         ex   = np.maximum(K - X, 0)
-        idx  = np.where(itm)[0][ex > cont]
-        payoff[idx] = ex[ex > cont]
-    return float(np.mean(payoff) * math.exp(-r * T))
-
-
-@st.cache_data
-def lsmc_price(S0, K, r, sigma, T, option="put", M=12000, N=50, seed=42):
-    rng = np.random.default_rng(seed)
-    dt  = T / N
-    Z   = rng.standard_normal((M, N))
-    S   = np.zeros((M, N + 1)); S[:, 0] = S0
-    for t in range(N):
-        S[:, t + 1] = S[:, t] * np.exp(
-            (r - 0.5 * sigma**2) * dt + sigma * math.sqrt(dt) * Z[:, t]
-        )
-    intrinsic = (lambda x: np.maximum(K - x, 0)) if option == "put" \
-        else (lambda x: np.maximum(x - K, 0))
-    payoff = intrinsic(S[:, -1])
-    for t in range(N - 1, 0, -1):
-        ex_now = intrinsic(S[:, t])
-        itm = ex_now > 0
-        if itm.sum() < 5:
-            continue
-        X    = S[itm, t]
-        Y    = payoff[itm] * math.exp(-r * dt)
-        A    = np.column_stack([np.ones_like(X), X, X**2])
-        coef, *_ = np.linalg.lstsq(A, Y, rcond=None)
-        cont = A @ coef
-        ex   = ex_now[itm]
         idx  = np.where(itm)[0][ex > cont]
         payoff[idx] = ex[ex > cont]
     return float(np.mean(payoff) * math.exp(-r * T))
@@ -330,6 +289,88 @@ def fig_tree():
     layout["yaxis"] = dict(showgrid=False, zeroline=False, showticklabels=False)
     fig.update_layout(**layout)
     return fig
+
+
+@st.cache_data
+def fig_tree_live(S0, K, r, sigma, T, N, option="put"):
+    """Interactive binomial tree built from user inputs. Returns (fig, V_root,
+    V_root_european, n_early)."""
+    dt = T / N
+    u  = math.exp(sigma * math.sqrt(dt))
+    d  = 1 / u
+    q  = (math.exp(r * dt) - d) / (u - d)
+    disc = math.exp(-r * dt)
+    intr = (lambda x: max(K - x, 0)) if option == "put" else (lambda x: max(x - K, 0))
+
+    S = {(t, j): S0 * (u ** (t - j)) * (d ** j)
+         for t in range(N + 1) for j in range(t + 1)}
+
+    V, Veu, early = {}, {}, {}
+    for t in range(N, -1, -1):
+        for j in range(t + 1):
+            ex = intr(S[(t, j)])
+            if t == N:
+                V[(t, j)] = Veu[(t, j)] = ex
+                early[(t, j)] = False
+            else:
+                hold_a = disc * (q * V[(t + 1, j)]   + (1 - q) * V[(t + 1, j + 1)])
+                hold_e = disc * (q * Veu[(t + 1, j)] + (1 - q) * Veu[(t + 1, j + 1)])
+                Veu[(t, j)] = hold_e
+                if ex > hold_a and ex > 0:
+                    V[(t, j)], early[(t, j)] = ex, True
+                else:
+                    V[(t, j)], early[(t, j)] = hold_a, False
+
+    def pos(t, j):
+        return t * 2.0, (t - 2 * j) * 1.5
+
+    xl, yl = [], []
+    for t in range(1, N + 1):
+        for j in range(t + 1):
+            x1, y1 = pos(t, j)
+            for nj in (j, j - 1):
+                if 0 <= nj <= t - 1:
+                    x0, y0 = pos(t - 1, nj)
+                    xl += [x0, x1, None]; yl += [y0, y1, None]
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=xl, y=yl, mode="lines",
+                             line=dict(color="rgba(255,255,255,0.13)", width=1.5),
+                             showlegend=False, hoverinfo="skip"))
+
+    bw = 0.78 if N <= 4 else 0.66
+    fs = 12 if N <= 4 else 10
+    for t in range(N + 1):
+        for j in range(t + 1):
+            px, py = pos(t, j)
+            is_early = early[(t, j)]
+            fill   = c_rgba("#ff4757", 0.28) if is_early else c_rgba("#00d4ff", 0.14)
+            border = "#ff4757" if is_early else "#00d4ff"
+            fig.add_shape(type="rect",
+                          x0=px - bw, y0=py - 0.62, x1=px + bw, y1=py + 0.62,
+                          fillcolor=fill, line=dict(color=border, width=1.6))
+            fig.add_annotation(x=px, y=py + 0.20, text=f"S {S[(t, j)]:.1f}",
+                               showarrow=False,
+                               font=dict(color="rgba(255,255,255,0.72)", size=fs - 1, family="Inter"))
+            fig.add_annotation(x=px, y=py - 0.20, text=f"V {V[(t, j)]:.2f}",
+                               showarrow=False,
+                               font=dict(color="#ffffff", size=fs, family="Inter"))
+
+    # legend proxies
+    fig.add_trace(go.Scatter(x=[None], y=[None], mode="markers",
+        marker=dict(size=12, color=c_rgba("#ff4757", 0.5), line=dict(color="#ff4757", width=1.5)),
+        name="Early exercise optimal"))
+    fig.add_trace(go.Scatter(x=[None], y=[None], mode="markers",
+        marker=dict(size=12, color=c_rgba("#00d4ff", 0.2), line=dict(color="#00d4ff", width=1.5)),
+        name="Hold"))
+
+    layout = chart_layout(f"Binomial tree — {N} steps   (S = stock price, V = option value)", h=430)
+    layout["xaxis"] = dict(showgrid=False, zeroline=False, showticklabels=False,
+                           range=[-1.1, N * 2.0 + 1.1])
+    layout["yaxis"] = dict(showgrid=False, zeroline=False, showticklabels=False)
+    layout["legend"] = dict(orientation="h", y=1.08, x=0, font=dict(size=13))
+    fig.update_layout(**layout)
+    return fig, V[(0, 0)], Veu[(0, 0)], sum(early.values())
 
 
 @st.cache_data
@@ -603,6 +644,42 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
+# ── Binomial Tree Pricer ─────────────────────────────────────────────────────
+st.markdown("<br>", unsafe_allow_html=True)
+st.markdown('<div class="section-title" style="font-size:30px;">Binomial Tree Pricer</div>', unsafe_allow_html=True)
+st.markdown('<div class="section-sub" style="margin-bottom:20px;">Type in your own option and watch the tree solve it — red nodes are where exercising early beats holding.</div>', unsafe_allow_html=True)
+
+pc1, pc2 = st.columns([1, 3.4])
+
+with pc1:
+    opt_type = st.radio("Type", ["Put", "Call"], horizontal=True, key="tree_opt")
+    opt = opt_type.lower()
+    S0_i  = st.number_input("Spot  S₀", 1.0, 10000.0, 100.0, step=1.0, key="tree_S0")
+    K_i   = st.number_input("Strike  K", 1.0, 10000.0, 100.0, step=1.0, key="tree_K")
+    sig_i = st.number_input("Volatility σ (%)", 1.0, 200.0, 20.0, step=1.0, key="tree_sig") / 100
+    T_i   = st.number_input("Maturity T (years)", 0.05, 10.0, 1.0, step=0.25, key="tree_T")
+    r_i   = st.number_input("Rate  r (%)", 0.0, 25.0, 5.0, step=0.5, key="tree_r") / 100
+    N_i   = st.number_input("Tree steps  N", 2, 5, 3, step=1, key="tree_N")
+
+tree_fig, v_am, v_eu, n_early = fig_tree_live(S0_i, K_i, r_i, sig_i, T_i, int(N_i), option=opt)
+prem_t = max(v_am - v_eu, 0.0)
+
+with pc2:
+    m1, m2, m3 = st.columns(3)
+    with m1:
+        st.markdown(f'<div class="stat-card"><div class="stat-number" style="color:{GREEN};">${v_am:.2f}</div>'
+                    f'<div class="stat-label">American {opt_type} (this tree)</div></div>', unsafe_allow_html=True)
+    with m2:
+        st.markdown(f'<div class="stat-card"><div class="stat-number" style="color:{CYAN};">${v_eu:.2f}</div>'
+                    f'<div class="stat-label">European {opt_type} (this tree)</div></div>', unsafe_allow_html=True)
+    with m3:
+        st.markdown(f'<div class="stat-card"><div class="stat-number" style="color:{GOLD};">${prem_t:.3f}</div>'
+                    f'<div class="stat-label">Early-exercise premium</div></div>', unsafe_allow_html=True)
+    st.plotly_chart(tree_fig, use_container_width=True)
+
+st.caption(f"Prices are exact for this {int(N_i)}-step tree; add steps for more precision. "
+           f"{'Some nodes exercise early (red).' if n_early else 'No node exercises early here — the American and European prices coincide.'}")
+
 st.markdown("<hr class='divider'>", unsafe_allow_html=True)
 
 
@@ -644,75 +721,6 @@ with mc2:
     """, unsafe_allow_html=True)
 
 st.plotly_chart(fig_dist(S_paths), use_container_width=True)
-
-# ── Pricing Calculator (inside Method 2) ─────────────────────────────────────
-st.markdown("<br>", unsafe_allow_html=True)
-st.markdown('<div class="section-title" style="font-size:30px;">Pricing Calculator</div>', unsafe_allow_html=True)
-st.markdown('<div class="section-sub" style="margin-bottom:24px;">Price any American option with both methods side by side.</div>', unsafe_allow_html=True)
-
-ic1, ic2 = st.columns([2, 3])
-
-with ic1:
-    st.markdown('<div style="font-size:13px;font-weight:700;color:#00d4ff;letter-spacing:2px;text-transform:uppercase;margin-bottom:6px;">Parameters</div>', unsafe_allow_html=True)
-    opt_type = st.radio("Option type", ["Put", "Call"], horizontal=True, key="calc_opt")
-    opt = opt_type.lower()
-    S0_i  = st.slider("Spot price  S₀ ($)", 10.0, 400.0, 201.80, step=1.0, key="calc_S0")
-    K_i   = st.slider("Strike  K ($)", 10.0, 400.0, 135.0, step=1.0, key="calc_K")
-    sig_i = st.slider("Volatility  σ (%)", 5.0, 150.0, 60.0, step=1.0, key="calc_sig") / 100
-    T_days = st.slider("Time to expiry (days)", 7, 730, 93, step=1, key="calc_T")
-    T_i   = T_days / 365
-    r_i   = st.slider("Risk-free rate  r (%)", 0.0, 10.0, 3.7, step=0.1, key="calc_r") / 100
-    N_i   = st.select_slider("Binomial steps  N", options=[25, 50, 100, 200, 500], value=200, key="calc_N")
-
-# live pricing (all cached by argument tuple)
-am_i   = binomial_price(S0_i, K_i, r_i, sig_i, T_i, N=N_i, option=opt, american=True)
-eu_i   = binomial_price(S0_i, K_i, r_i, sig_i, T_i, N=N_i, option=opt, american=False)
-bs_i   = black_scholes(S0_i, K_i, r_i, sig_i, T_i, option=opt)
-lsmc_i = lsmc_price(S0_i, K_i, r_i, sig_i, T_i, option=opt)
-prem_i = max(am_i - eu_i, 0.0)
-intrinsic_i = max(K_i - S0_i, 0) if opt == "put" else max(S0_i - K_i, 0)
-
-with ic2:
-    r1c1, r1c2 = st.columns(2)
-    with r1c1:
-        st.markdown(f'<div class="stat-card"><div class="stat-number" style="color:{GREEN};">${am_i:.2f}</div>'
-                    f'<div class="stat-label">American ({opt_type}) — Binomial CRR</div></div>', unsafe_allow_html=True)
-    with r1c2:
-        st.markdown(f'<div class="stat-card"><div class="stat-number" style="color:{PRP};">${lsmc_i:.2f}</div>'
-                    f'<div class="stat-label">American ({opt_type}) — LSMC Monte Carlo</div></div>', unsafe_allow_html=True)
-    st.markdown("<div style='height:12px;'></div>", unsafe_allow_html=True)
-    r2c1, r2c2 = st.columns(2)
-    with r2c1:
-        st.markdown(f'<div class="stat-card"><div class="stat-number" style="color:{CYAN};font-size:30px;">${bs_i:.2f}</div>'
-                    f'<div class="stat-label">European — Black-Scholes</div></div>', unsafe_allow_html=True)
-    with r2c2:
-        st.markdown(f'<div class="stat-card"><div class="stat-number" style="color:{GOLD};font-size:30px;">${prem_i:.3f}</div>'
-                    f'<div class="stat-label">Early-exercise premium</div></div>', unsafe_allow_html=True)
-
-    moneyness = ("in-the-money" if intrinsic_i > 0 else "out-of-the-money")
-    if prem_i < 0.01:
-        note = (f"The {opt_type.lower()} is {moneyness} with intrinsic value ${intrinsic_i:.2f}. "
-                f"The early-exercise premium is essentially zero — holding dominates exercising early, "
-                f"so the American and European prices nearly coincide.")
-    else:
-        note = (f"The {opt_type.lower()} is {moneyness} with intrinsic value ${intrinsic_i:.2f}. "
-                f"The American right to exercise early is worth <strong style='color:#ffa502;'>${prem_i:.3f}</strong> "
-                f"more than the European equivalent — that is the early-exercise premium.")
-    st.markdown(f'<div class="info-box"><div style="font-size:14px;color:rgba(255,255,255,0.78);line-height:1.6;">{note}</div></div>',
-                unsafe_allow_html=True)
-
-# live decomposition bar
-calc_fig = go.Figure(go.Bar(
-    x=["European<br>(Black-Scholes)", "Early Exercise<br>Premium", "American<br>(Binomial CRR)"],
-    y=[bs_i, prem_i, am_i],
-    marker_color=[CYAN, GOLD, GREEN],
-    text=[f"${bs_i:.2f}", f"${prem_i:.3f}", f"${am_i:.2f}"],
-    textposition="outside", textfont=dict(size=15, color="white"),
-    width=0.5,
-))
-calc_fig.update_layout(**chart_layout(f"Live Price Decomposition — American {opt_type}", h=320))
-calc_fig.update_layout(yaxis_title="Option value ($)", xaxis=dict(gridcolor="rgba(0,0,0,0)"))
-st.plotly_chart(calc_fig, use_container_width=True)
 
 st.markdown("<hr class='divider'>", unsafe_allow_html=True)
 
